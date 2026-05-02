@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Predictive Maintenance Dashboard</title>
+
+    <link rel="stylesheet" href="../src/css/style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    />
+    <script src="../src/js/auth.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+
+  <body>
+    <!-- NAVBAR -->
+    <nav class="navbar">
+      <div class="logo">Predictive Maintenance</div>
+      <ul>
+        <li><a href="index.html" class="active">Dashboard</a></li>
+        <li><a href="machines.html">Machines</a></li>
+        <li><a href="alerts.html">Alerts</a></li>
+
+        <li class="notification-menu">
+          <div class="notification-icon" onclick="toggleAlertMenu()">
+            <i class="fa-solid fa-bell"></i>
+            <span id="alertBadge" class="alert-badge">0</span>
+          </div>
+
+          <div class="alert-dropdown" id="alertDropdown">
+            <div class="alert-header">Active Alerts</div>
+
+            <div id="alertList"></div>
+          </div>
+        </li>
+
+        <li class="user-menu">
+          <div class="user-icon" onclick="toggleUserMenu()">
+            <i class="fa-solid fa-user"></i>
+          </div>
+
+          <div class="user-dropdown" id="userDropdown">
+            <div class="user-role" id="userRoleDisplay"></div>
+            <div class="dropdown-divider"></div>
+            <button onclick="logout()">Logout</button>
+          </div>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- HEADER -->
+    <header class="header">
+      <h1>AI-Powered Predictive Maintenance</h1>
+      <p>Real-Time Equipment Health Monitoring System</p>
+    </header>
+
+    <h2>Active Alerts: <span id="alertCount">--</span></h2>
+
+    <!-- SUMMARY CARDS -->
+    <section class="summary-cards">
+      <div class="summary-card blue">
+        <h3>Total Machines</h3>
+        <p id="totalMachines">--</p>
+      </div>
+
+      <div class="summary-card green">
+        <a href="#" class="view-link" onclick="showMachinesByRisk('Healthy')"
+          >view machines</a
+        >
+        <div class="card-content">
+          <h3>Healthy</h3>
+          <p id="healthyCount">--</p>
+        </div>
+      </div>
+
+      <div class="summary-card yellow">
+        <a href="#" class="view-link" onclick="showMachinesByRisk('Warning')"
+          >view machines</a
+        >
+        <div class="card-content">
+          <h3>Warning</h3>
+          <p id="warningCount">--</p>
+        </div>
+      </div>
+
+      <div class="summary-card red">
+        <a href="#" class="view-link" onclick="showMachinesByRisk('Critical')"
+          >view machines</a
+        >
+        <div class="card-content">
+          <h3>Critical</h3>
+          <p id="criticalCount">--</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- MACHINE CARDS -->
+    <!-- <section class="cards"> -->
+    <!-- Dynamically filled -->
+    <!-- </section> -->
+
+    <!-- MACHINE CARDS -->
+    <!-- <section class="cards"> -->
+    <!-- Dynamically filled -->
+    <!-- </section> -->
+
+    <!-- TREND GRAPH -->
+    <section class="chart-section">
+      <h2>Health Index Trend</h2>
+
+      <div style="margin-bottom: 20px">
+        <label for="machineSelect"><strong>Select Machine:</strong></label>
+        <select id="machineSelect" onchange="loadTrend()">
+          <option value="">-- Select Machine --</option>
+        </select>
+      </div>
+
+      <canvas id="healthChart"></canvas>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <p>Predictive Maintenance System | ML-Driven Analytics</p>
+    </footer>
+
+    <div id="machinesModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modalTitle"></h2>
+          <span class="close" onclick="closeModal()">&times;</span>
+        </div>
+
+        <table class="modal-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Location</th>
+              <th>Health</th>
+            </tr>
+          </thead>
+          <tbody id="modalMachineList"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const baseUrl = "https://localhost:7262";
+      let chart;
+
+      // Load system summary
+      async function loadSystemSummary() {
+        const response = await authFetch(
+          baseUrl + "/api/Machine/system-summary",
+        );
+        const summary = await response.json();
+
+        document.getElementById("totalMachines").innerText =
+          summary.totalMachines;
+        document.getElementById("healthyCount").innerText = summary.healthy;
+        document.getElementById("warningCount").innerText = summary.warning;
+        document.getElementById("criticalCount").innerText = summary.critical;
+      }
+
+      async function showMachinesByRisk(riskLevel) {
+        const response = await authFetch(baseUrl + "/api/Machine");
+        const machines = await response.json();
+
+        const modal = document.getElementById("machinesModal");
+        const tableBody = document.getElementById("modalMachineList");
+        const title = document.getElementById("modalTitle");
+
+        tableBody.innerHTML = "";
+        title.innerText = riskLevel + " Machines";
+
+        for (const machine of machines) {
+          const predictionRes = await authFetch(
+            `${baseUrl}/api/Predictions/latest/${machine.machineId}`,
+          );
+
+          if (!predictionRes.ok) continue;
+
+          const prediction = await predictionRes.json();
+
+          if (prediction.riskLevel === riskLevel) {
+            tableBody.innerHTML += `
+              <tr>
+                <td>${machine.machineId}</td>
+                <td>${machine.machineName}</td>
+                <td>${machine.machineType}</td>
+                <td>${machine.location}</td>
+                <td>${prediction.healthIndex.toFixed(1)}</td>
+              </tr>
+            `;
+          }
+        }
+
+        modal.style.display = "block";
+      }
+
+      function closeModal() {
+        document.getElementById("machinesModal").style.display = "none";
+      }
+
+      // Load alerts count
+      async function loadAlertCount() {
+        const response = await authFetch(baseUrl + "/api/Alerts");
+        const alerts = await response.json();
+        const activeAlerts = alerts.filter((a) => !a.isAcknowledged);
+        document.getElementById("alertCount").innerText = activeAlerts.length;
+      }
+
+      // Load Machines into Dropdown
+      async function loadMachineDropdown() {
+        const response = await authFetch(baseUrl + "/api/Machine");
+        const machines = await response.json();
+
+        const select = document.getElementById("machineSelect");
+        select.innerHTML = `<option value="">-- Select Machine --</option>`;
+
+        machines.forEach((machine) => {
+          select.innerHTML += `
+                  <option value="${machine.machineId}">
+                      ${machine.machineName}
+                  </option>
+              `;
+        });
+      }
+
+      // Load Trend for Selected Machine
+      async function loadTrend() {
+        const machineId = document.getElementById("machineSelect").value;
+        if (!machineId) return;
+
+        const response = await authFetch(
+          `${baseUrl}/api/Predictions/trend/${machineId}`,
+        );
+        if (!response.ok) return;
+
+        const data = await response.json();
+
+        const labels = data.map((d) =>
+          new Date(d.predictionDate).toLocaleTimeString(),
+        );
+
+        const healthValues = data.map((d) => d.healthIndex);
+
+        const latestHealth = healthValues[healthValues.length - 1];
+
+        let lineColor = "green";
+        if (latestHealth < 50) lineColor = "orange";
+        if (latestHealth < 30) lineColor = "red";
+
+        const ctx = document.getElementById("healthChart").getContext("2d");
+
+        if (chart) {
+          chart.destroy();
+        }
+
+        chart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: "Health Index",
+                data: healthValues,
+                borderColor: lineColor,
+                backgroundColor: lineColor + "33",
+                tension: 0.2,
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: {
+                min: 0,
+                max: 100,
+              },
+            },
+          },
+        });
+      }
+
+      // Initialize
+      loadMachineDropdown();
+
+      // Load everything
+      async function loadDashboard() {
+        await loadSystemSummary();
+        await loadAlertCount();
+        await loadTrend();
+      }
+
+      loadDashboard();
+
+      // Auto refresh every 20 seconds
+      setInterval(loadDashboard, 20000);
+    </script>
+  </body>
+</html>

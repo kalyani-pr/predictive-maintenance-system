@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Alerts & Predictions</title>
+    <link rel="stylesheet" href="../src/css/style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    />
+    <script src="../src/js/auth.js"></script>
+
+    <style>
+      .critical-text {
+        color: red;
+      }
+      .warning-text {
+        color: orange;
+      }
+      .normal-text {
+        color: green;
+      }
+
+      .ack-row {
+        background-color: #f2f2f2;
+        opacity: 0.7;
+      }
+
+      .critical-row {
+        background-color: rgba(255, 0, 0, 0.08);
+      }
+
+      button {
+        padding: 6px 10px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        background-color: #2563eb;
+        color: white;
+      }
+
+      button:hover {
+        background-color: #1e40af;
+      }
+    </style>
+  </head>
+
+  <body>
+    <nav class="navbar">
+      <div class="logo">Predictive Maintenance</div>
+      <ul>
+        <li><a href="index.html">Dashboard</a></li>
+        <li><a href="machines.html">Machines</a></li>
+        <li><a href="alerts.html" class="active">Alerts</a></li>
+
+        <li class="notification-menu">
+          <div class="notification-icon" onclick="toggleAlertMenu()">
+            <i class="fa-solid fa-bell"></i>
+            <span id="alertBadge" class="alert-badge">0</span>
+          </div>
+
+          <div class="alert-dropdown" id="alertDropdown">
+            <div class="alert-header">Active Alerts</div>
+
+            <div id="alertList"></div>
+          </div>
+        </li>
+        <li class="user-menu">
+          <div class="user-icon" onclick="toggleUserMenu()">
+            <i class="fa-solid fa-user"></i>
+          </div>
+
+          <div class="user-dropdown" id="userDropdown">
+            <div class="user-role" id="userRoleDisplay"></div>
+
+            <div class="dropdown-divider"></div>
+
+            <button onclick="logout()">Logout</button>
+          </div>
+        </li>
+      </ul>
+    </nav>
+
+    <header class="header">
+      <h1>Alerts & Predictions</h1>
+      <p>Machine failure warnings and escalation history</p>
+    </header>
+
+    <section class="table-section">
+      <h2>Alert History</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Alert ID</th>
+            <th>Machine</th>
+            <th>Risk Level</th>
+            <th>Description</th>
+            <th>Status</th>
+            <th>Created At</th>
+            <th>Acknowledged At</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+
+        <tbody id="alertsTableBody"></tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <p>Predictive Maintenance System | Alerts & Predictions</p>
+    </footer>
+
+    <script>
+      const baseUrl = "https://localhost:7262";
+      let isLoading = false;
+
+      async function loadAlerts() {
+        if (isLoading) return;
+        isLoading = true;
+
+        try {
+          const response = await authFetch(baseUrl + "/api/Alerts");
+          if (!response.ok) throw new Error("Failed to fetch alerts");
+
+          let alerts = await response.json();
+
+          // Sort newest first
+          alerts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+          const machineResponse = await authFetch(baseUrl + "/api/Machine");
+          if (!machineResponse.ok) throw new Error("Failed to fetch machines");
+
+          const machines = await machineResponse.json();
+
+          const machineMap = {};
+          machines.forEach((m) => {
+            machineMap[m.machineId] = m.machineName;
+          });
+
+          const tableBody = document.getElementById("alertsTableBody");
+          tableBody.innerHTML = "";
+
+          alerts.forEach((alert) => {
+            const riskClass =
+              alert.riskLevel === "Critical"
+                ? "critical-text"
+                : alert.riskLevel === "Warning"
+                  ? "warning-text"
+                  : "normal-text";
+
+            const rowClass = `
+                ${alert.isAcknowledged ? "ack-row" : ""}
+                ${alert.riskLevel === "Critical" ? "critical-row" : ""}
+            `;
+
+            const row = `
+                <tr class="${rowClass}">
+                    <td>${alert.alertId}</td>
+                    <td>${machineMap[alert.machineId] || alert.machineId}</td>
+                    <td class="${riskClass}"><strong>${alert.riskLevel}</strong></td>
+                    <td>${alert.description}</td>
+                    <td>${alert.isAcknowledged ? "Acknowledged" : "Pending"}</td>
+                    <td>${new Date(alert.createdAt).toLocaleString()}</td>
+                    <td>
+                        ${
+                          alert.acknowledgedAt
+                            ? new Date(alert.acknowledgedAt).toLocaleString()
+                            : "--"
+                        }
+                    </td>
+                    <td>
+                        ${
+                          alert.isAcknowledged
+                            ? "✔"
+                            : `<button data-role="admin" onclick="acknowledgeAlert(${alert.alertId})">Acknowledge</button>`
+                        }
+                    </td>
+                </tr>
+            `;
+
+            tableBody.innerHTML += row;
+            applyRoleProtection();
+          });
+        } catch (error) {
+          console.error("Error loading alerts:", error);
+          alert("Failed to load alerts. Please check server.");
+        }
+
+        isLoading = false;
+      }
+
+      async function acknowledgeAlert(id) {
+        try {
+          const response = await authFetch(
+            `${baseUrl}/api/Alerts/${id}/acknowledge`,
+            {
+              method: "PUT",
+            },
+          );
+
+          if (!response.ok) {
+            alert("Failed to acknowledge alert.");
+            return;
+          }
+
+          loadAlerts();
+        } catch (error) {
+          console.error("Acknowledge error:", error);
+          alert("Server error while acknowledging.");
+        }
+      }
+
+      // Auto refresh every 15 seconds
+      setInterval(loadAlerts, 15000);
+
+      // Initial load
+      loadAlerts();
+    </script>
+  </body>
+</html>

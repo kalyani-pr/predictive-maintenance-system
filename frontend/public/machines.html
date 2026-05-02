@@ -1,0 +1,433 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Machine Management</title>
+    <link rel="stylesheet" href="../src/css/style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    />
+    <script src="../src/js/auth.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+
+  <body>
+    <nav class="navbar">
+      <div class="logo">Predictive Maintenance</div>
+      <ul>
+        <li><a href="index.html">Dashboard</a></li>
+        <li><a href="machines.html" class="active">Machines</a></li>
+        <li><a href="alerts.html">Alerts</a></li>
+
+        <li class="notification-menu">
+          <div class="notification-icon" onclick="toggleAlertMenu()">
+            <i class="fa-solid fa-bell"></i>
+            <span id="alertBadge" class="alert-badge">0</span>
+          </div>
+
+          <div class="alert-dropdown" id="alertDropdown">
+            <div class="alert-header">Active Alerts</div>
+
+            <div id="alertList"></div>
+          </div>
+        </li>
+        <li class="user-menu">
+          <div class="user-icon" onclick="toggleUserMenu()">
+            <i class="fa-solid fa-user"></i>
+          </div>
+
+          <div class="user-dropdown" id="userDropdown">
+            <div class="user-role" id="userRoleDisplay"></div>
+
+            <div class="dropdown-divider"></div>
+
+            <button onclick="logout()">Logout</button>
+          </div>
+        </li>
+      </ul>
+    </nav>
+
+    <header class="header">
+      <h1>Machine Management</h1>
+      <p>Add, update, and monitor equipment health</p>
+    </header>
+
+    <section class="form-section" data-role="admin">
+      <h2>Add New Machine</h2>
+
+      <form id="machineForm">
+        <input
+          type="text"
+          id="machineName"
+          placeholder="Machine Name"
+          required
+        />
+        <input
+          type="text"
+          id="machineType"
+          placeholder="Machine Type"
+          required
+        />
+        <input type="text" id="location" placeholder="Location" required />
+
+        <select id="isActive">
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
+        </select>
+
+        <button type="submit">Add Machine</button>
+      </form>
+    </section>
+
+    <section class="table-section">
+      <h2>Machines Overview</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Location</th>
+            <th>Active</th>
+            <th>Health</th>
+            <th>Risk</th>
+            <th>RUL</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="machineTableBody"></tbody>
+      </table>
+    </section>
+
+    <div id="sensorHistoryModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Sensor Data History</h2>
+          <span class="close" onclick="closeSensorModal()">&times;</span>
+        </div>
+
+        <table class="modal-table">
+          <thead>
+            <tr>
+              <th>Cycle</th>
+              <th>Temperature</th>
+              <th>Pressure</th>
+              <th>Vibration</th>
+              <th>Recorded At</th>
+            </tr>
+          </thead>
+
+          <tbody id="sensorHistoryTable"></tbody>
+        </table>
+
+        <h3 style="margin-top: 20px">Sensor Status</h3>
+        <div id="sensorStatus" class="sensor-status"></div>
+
+        <h3 style="margin-top: 20px">Sensor Trends</h3>
+        <canvas id="sensorTrendChart" height="120"></canvas>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <p>Predictive Maintenance System | Machine Management</p>
+    </footer>
+
+    <script>
+      let sensorChart;
+      const TEMP_THRESHOLD = 500;
+      const PRESSURE_THRESHOLD = 400;
+      const VIBRATION_THRESHOLD = 0.01;
+      const baseUrl = "https://localhost:7262";
+
+      //LOAD MACHINES + LATEST PREDICTION
+      async function loadMachines() {
+        const response = await authFetch(baseUrl + "/api/Machine");
+        const machines = await response.json();
+
+        const tableBody = document.getElementById("machineTableBody");
+        tableBody.innerHTML = "";
+
+        for (const machine of machines) {
+          let health = "-";
+          let risk = "-";
+          let rul = "-";
+          let riskColor = "black";
+
+          try {
+            const predictionResponse = await authFetch(
+              `${baseUrl}/api/Predictions/latest/${machine.machineId}`,
+            );
+
+            if (predictionResponse.ok) {
+              const prediction = await predictionResponse.json();
+
+              health = prediction.healthIndex?.toFixed(1) ?? "-";
+              risk = prediction.riskLevel ?? "-";
+              rul = prediction.predictedRUL?.toFixed(1) ?? "-";
+
+              if (risk === "Critical") riskColor = "red";
+              else if (risk === "Warning") riskColor = "orange";
+              else riskColor = "green";
+            }
+          } catch {}
+
+          const row = `
+          <tr>
+            <td>${machine.machineId}</td>
+            <td>${machine.machineName}</td>
+            <td>${machine.machineType}</td>
+            <td>${machine.location}</td>
+            <td>${machine.isActive ? "Active" : "Inactive"}</td>
+            <td>${health}</td>
+            <td style="color:${riskColor}; font-weight:bold;">${risk}</td>
+            <td>${rul}</td>
+            <td>
+              <button data-role="admin" onclick="runPrediction(${machine.machineId})">Run AI</button>
+              <button onclick="toggleSensorForm(${machine.machineId})">Add Sensor</button>
+              <button onclick="viewSensorHistory(${machine.machineId})">Sensor History</button>
+              <button data-role="admin" onclick="deleteMachine(${machine.machineId})">Delete</button>
+
+              <div id="sensorForm-${machine.machineId}" style="display:none; margin-top:10px;">
+                <input type="number" id="cycle-${machine.machineId}" placeholder="Cycle" step="1">
+                <input type="number" id="temp-${machine.machineId}" placeholder="Temperature" step="0.1">
+                <input type="number" id="press-${machine.machineId}" placeholder="Pressure" step="0.1">
+                <input type="number" id="vib-${machine.machineId}" placeholder="Vibration" step="0.01">
+                <button type="button" onclick="submitSensor(${machine.machineId})">Submit</button>
+              </div>
+            </td>
+          </tr>
+          `;
+
+          tableBody.innerHTML += row;
+        }
+        applyRoleProtection();
+      }
+
+      //ADD MACHINE
+      document
+        .getElementById("machineForm")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
+
+          const machine = {
+            machineName: document.getElementById("machineName").value,
+            machineType: document.getElementById("machineType").value,
+            location: document.getElementById("location").value,
+            isActive: document.getElementById("isActive").value === "true",
+          };
+
+          await authFetch(baseUrl + "/api/Machine", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(machine),
+          });
+
+          this.reset();
+          loadMachines();
+        });
+
+      //DELETE MACHINE
+      async function deleteMachine(id) {
+        if (!confirm("Delete this machine and all its data?")) return;
+
+        await authFetch(baseUrl + "/api/Machine/" + id, {
+          method: "DELETE",
+        });
+
+        loadMachines();
+      }
+
+      //RUN PREDICTION
+      async function runPrediction(machineId) {
+        const response = await authFetch(
+          `${baseUrl}/api/Predictions/run/${machineId}`,
+          { method: "POST" },
+        );
+
+        if (!response.ok) {
+          alert("No sensor data available.");
+          return;
+        }
+
+        alert("Prediction executed.");
+        loadMachines();
+      }
+
+      //TOGGLE SENSOR FORM
+      function toggleSensorForm(machineId) {
+        const form = document.getElementById(`sensorForm-${machineId}`);
+        form.style.display = form.style.display === "none" ? "block" : "none";
+      }
+
+      //SUBMIT SENSOR DATA (MANUAL CYCLE)
+      async function submitSensor(machineId) {
+        const cycle = parseInt(
+          document.getElementById(`cycle-${machineId}`).value,
+        );
+        const temperature = parseFloat(
+          document.getElementById(`temp-${machineId}`).value,
+        );
+        const pressure = parseFloat(
+          document.getElementById(`press-${machineId}`).value,
+        );
+        const vibration = parseFloat(
+          document.getElementById(`vib-${machineId}`).value,
+        );
+
+        if (
+          isNaN(cycle) ||
+          isNaN(temperature) ||
+          isNaN(pressure) ||
+          isNaN(vibration)
+        ) {
+          alert("Please enter all values correctly.");
+          return;
+        }
+
+        const sensorData = {
+          machineId: machineId,
+          cycle: cycle,
+          temperature: temperature,
+          pressure: pressure,
+          vibration: vibration,
+        };
+
+        const response = await authFetch(baseUrl + "/api/SensorReadings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sensorData),
+        });
+
+        if (!response.ok) {
+          alert("Failed to save sensor data.");
+          return;
+        }
+
+        alert("Sensor data saved. Now click Run AI.");
+
+        // clear inputs
+        document.getElementById(`cycle-${machineId}`).value = "";
+        document.getElementById(`temp-${machineId}`).value = "";
+        document.getElementById(`press-${machineId}`).value = "";
+        document.getElementById(`vib-${machineId}`).value = "";
+      }
+
+      async function viewSensorHistory(machineId) {
+        const response = await authFetch(
+          `${baseUrl}/api/SensorReadings/${machineId}`,
+        );
+
+        const readings = await response.json();
+
+        const table = document.getElementById("sensorHistoryTable");
+        table.innerHTML = "";
+
+        if (readings.length === 0) {
+          table.innerHTML = `
+      <tr>
+        <td colspan="5">No sensor data available</td>
+      </tr>
+    `;
+        }
+
+        const cycles = [];
+        const temps = [];
+        const pressures = [];
+        const vibrations = [];
+
+        readings.forEach((r) => {
+          table.innerHTML += `
+      <tr>
+        <td>${r.cycle}</td>
+        <td>${r.temperature}</td>
+        <td>${r.pressure}</td>
+        <td>${r.vibration}</td>
+        <td>${new Date(r.recordedAt).toLocaleString()}</td>
+      </tr>
+    `;
+
+          cycles.push(r.cycle);
+          temps.push(r.temperature);
+          pressures.push(r.pressure);
+          vibrations.push(r.vibration);
+        });
+
+        const latest = readings[0];
+
+        let statusHtml = "";
+
+        statusHtml += `
+<div class="${latest.temperature > TEMP_THRESHOLD ? "status-warning" : "status-normal"}">
+Temperature: ${latest.temperature > TEMP_THRESHOLD ? "⚠ High" : "✓ Normal"}
+</div>
+`;
+
+        statusHtml += `
+<div class="${latest.pressure > PRESSURE_THRESHOLD ? "status-warning" : "status-normal"}">
+Pressure: ${latest.pressure > PRESSURE_THRESHOLD ? "⚠ High" : "✓ Normal"}
+</div>
+`;
+
+        statusHtml += `
+<div class="${latest.vibration > VIBRATION_THRESHOLD ? "status-warning" : "status-normal"}">
+Vibration: ${latest.vibration > VIBRATION_THRESHOLD ? "⚠ High" : "✓ Normal"}
+</div>
+`;
+
+        document.getElementById("sensorStatus").innerHTML = statusHtml;
+        const ctx = document
+          .getElementById("sensorTrendChart")
+          .getContext("2d");
+
+        if (sensorChart) {
+          sensorChart.destroy();
+        }
+
+        sensorChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: cycles,
+            datasets: [
+              {
+                label: "Temperature",
+                data: temps,
+                borderColor: "red",
+                tension: 0.3,
+              },
+              {
+                label: "Pressure",
+                data: pressures,
+                borderColor: "blue",
+                tension: 0.3,
+              },
+              {
+                label: "Vibration",
+                data: vibrations,
+                borderColor: "green",
+                tension: 0.3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: {
+                position: "top",
+              },
+            },
+          },
+        });
+
+        document.getElementById("sensorHistoryModal").style.display = "flex";
+      }
+
+      function closeSensorModal() {
+        document.getElementById("sensorHistoryModal").style.display = "none";
+      }
+
+      //INITIAL LOAD
+      loadMachines();
+    </script>
+  </body>
+</html>

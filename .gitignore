@@ -1,0 +1,51 @@
+# .NET / C#
+
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build / Publish
+
+publish/
+Output/
+*.exe
+*.dll
+*.pdb
+
+# Logs
+
+*.log
+
+# VS Code / IDE
+
+.vscode/
+*.code-workspace
+
+# Environment files
+
+.env
+appsettings.Development.json
+
+# Node
+
+node_modules/
+
+# Python / ML
+
+ml-model/venv/
+__pycache__/
+*.pyc
+
+# OS files
+
+.DS_Store
+Thumbs.db
+
+# Installer / Generated files
+
+*.bat
+*.iss
+Output/
