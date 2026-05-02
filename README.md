@@ -33,7 +33,7 @@ Predictix is a web-based application that enables real-time monitoring of indust
 
 ---
 
-##️ System Architecture
+## System Architecture
 
 Frontend → Backend API → ML Model → Database → Dashboard
 
